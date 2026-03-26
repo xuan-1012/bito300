@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # AWS SDK
 boto3>=1.28.0
 botocore>=1.31.0
@@ -22,3 +23,29 @@ moto>=4.1.0
 black>=23.7.0
 flake8>=6.1.0
 mypy>=1.5.0
+=======
+# AWS SDK
+boto3>=1.28.0
+botocore>=1.31.0
+
+# Data validation and models
+pydantic>=2.0.0
+
+# Data processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Date/time utilities
+python-dateutil>=2.8.0
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+hypothesis>=6.82.0
+moto>=4.1.0
+
+# Development
+black>=23.7.0
+flake8>=6.1.0
+mypy>=1.5.0
+>>>>>>> 3ed03a3 (Initial commit)

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import pandas as pd
 
 df = pd.read_csv('your_team_name.csv')
@@ -18,3 +19,25 @@ print(df.tail(20)['user_id'].tolist())
 print("\n" + "=" * 60)
 print("✓ File is sorted by user_id (ascending order)")
 print("=" * 60)
+=======
+import pandas as pd
+
+df = pd.read_csv('your_team_name.csv')
+
+print("=" * 60)
+print("CSV File Verification")
+print("=" * 60)
+print(f"\nTotal records: {len(df)}")
+print(f"Columns: {list(df.columns)}")
+print(f"\nStatus distribution:")
+print(df['status'].value_counts())
+print(f"\nFirst user_id: {df.iloc[0]['user_id']}")
+print(f"Last user_id: {df.iloc[-1]['user_id']}")
+print(f"\nFirst 20 user_ids:")
+print(df.head(20)['user_id'].tolist())
+print(f"\nLast 20 user_ids:")
+print(df.tail(20)['user_id'].tolist())
+print("\n" + "=" * 60)
+print("✓ File is sorted by user_id (ascending order)")
+print("=" * 60)
+>>>>>>> 3ed03a3 (Initial commit)

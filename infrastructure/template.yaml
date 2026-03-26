@@ -1,0 +1,553 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Crypto Suspicious Account Detection System - Hackathon MVP
+
+Globals:
+  Function:
+    Runtime: python3.11
+    Timeout: 300
+    MemorySize: 1024
+    Environment:
+      Variables:
+        RAW_DATA_BUCKET: !Ref RawDataBucket
+        FEATURES_BUCKET: !Ref FeaturesBucket
+        RISK_SCORES_BUCKET: !Ref RiskScoresBucket
+        REPORTS_BUCKET: !Ref ReportsBucket
+        RISK_PROFILES_TABLE: !Ref RiskProfilesTable
+        BITOPRO_SECRET_NAME: !Ref BitoproApiSecret
+
+Resources:
+  # ==================== S3 Buckets ====================
+  
+  RawDataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-raw-data-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Purpose
+          Value: RawTransactionData
+        - Key: Encryption
+          Value: AES256
+
+  FeaturesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-features-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Purpose
+          Value: ExtractedFeatures
+        - Key: Encryption
+          Value: AES256
+
+  RiskScoresBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-risk-scores-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Purpose
+          Value: RiskAssessments
+        - Key: Encryption
+          Value: AES256
+
+  ReportsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-reports-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - '*'
+            AllowedMethods:
+              - GET
+            AllowedOrigins:
+              - '*'
+            MaxAge: 3000
+      Tags:
+        - Key: Purpose
+          Value: ReportsAndCharts
+        - Key: Encryption
+          Value: AES256
+
+  # ==================== DynamoDB Table ====================
+  
+  RiskProfilesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-risk-profiles'
+      BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      AttributeDefinitions:
+        - AttributeName: account_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: N
+      KeySchema:
+        - AttributeName: account_id
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: RiskLevelIndex
+          KeySchema:
+            - AttributeName: account_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      Tags:
+        - Key: Purpose
+          Value: AccountRiskProfiles
+        - Key: Encryption
+          Value: KMS
+
+  # ==================== Secrets Manager ====================
+  
+  BitoproApiSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub '${AWS::StackName}-bitopro-api-key'
+      Description: BitoPro API credentials for transaction data fetching
+      SecretString: !Sub |
+        {
+          "api_key": "PLACEHOLDER_REPLACE_WITH_ACTUAL_KEY",
+          "api_secret": "PLACEHOLDER_REPLACE_WITH_ACTUAL_SECRET"
+        }
+      Tags:
+        - Key: Purpose
+          Value: BitoproApiCredentials
+
+  # ==================== CloudWatch Log Groups ====================
+  
+  DataFetcherLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-data-fetcher'
+      RetentionInDays: 7
+
+  FeatureExtractorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-feature-extractor'
+      RetentionInDays: 7
+
+  RiskAnalyzerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-risk-analyzer'
+      RetentionInDays: 7
+
+  ReportGeneratorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-report-generator'
+      RetentionInDays: 7
+
+  # ==================== IAM Roles ====================
+  
+  DataFetcherRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-data-fetcher-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DataFetcherPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:PutObjectAcl
+                Resource:
+                  - !Sub '${RawDataBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - !Ref BitoproApiSecret
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !GetAtt DataFetcherLogGroup.Arn
+
+  FeatureExtractorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-feature-extractor-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: FeatureExtractorPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - !Sub '${RawDataBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:PutObjectAcl
+                Resource:
+                  - !Sub '${FeaturesBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !GetAtt FeatureExtractorLogGroup.Arn
+
+  RiskAnalyzerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-risk-analyzer-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: RiskAnalyzerPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - !Sub '${FeaturesBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:PutObjectAcl
+                Resource:
+                  - !Sub '${RiskScoresBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                Resource:
+                  - !GetAtt RiskProfilesTable.Arn
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource:
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0'
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-3-haiku-20240307-v1:0'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !GetAtt RiskAnalyzerLogGroup.Arn
+
+  ReportGeneratorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-report-generator-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ReportGeneratorPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - !Sub '${RiskScoresBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:PutObjectAcl
+                Resource:
+                  - !Sub '${ReportsBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                  - dynamodb:GetItem
+                Resource:
+                  - !GetAtt RiskProfilesTable.Arn
+                  - !Sub '${RiskProfilesTable.Arn}/index/*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !GetAtt ReportGeneratorLogGroup.Arn
+
+  StepFunctionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-step-functions-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StepFunctionsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogDelivery
+                  - logs:GetLogDelivery
+                  - logs:UpdateLogDelivery
+                  - logs:DeleteLogDelivery
+                  - logs:ListLogDeliveries
+                  - logs:PutResourcePolicy
+                  - logs:DescribeResourcePolicies
+                  - logs:DescribeLogGroups
+                Resource: '*'
+
+  # ==================== Lambda Functions (Placeholders) ====================
+  
+  DataFetcherFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-data-fetcher'
+      CodeUri: ../src/lambdas/data_fetcher/
+      Handler: handler.lambda_handler
+      Role: !GetAtt DataFetcherRole.Arn
+      Environment:
+        Variables:
+          RAW_DATA_BUCKET: !Ref RawDataBucket
+          BITOPRO_SECRET_NAME: !Ref BitoproApiSecret
+      Tags:
+        Purpose: DataIngestion
+
+  FeatureExtractorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-feature-extractor'
+      CodeUri: ../src/lambdas/feature_extractor/
+      Handler: handler.lambda_handler
+      Role: !GetAtt FeatureExtractorRole.Arn
+      Environment:
+        Variables:
+          RAW_DATA_BUCKET: !Ref RawDataBucket
+          FEATURES_BUCKET: !Ref FeaturesBucket
+      Tags:
+        Purpose: FeatureExtraction
+
+  RiskAnalyzerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-risk-analyzer'
+      CodeUri: ../src/lambdas/risk_analyzer/
+      Handler: handler.lambda_handler
+      Role: !GetAtt RiskAnalyzerRole.Arn
+      Timeout: 900
+      Environment:
+        Variables:
+          FEATURES_BUCKET: !Ref FeaturesBucket
+          RISK_SCORES_BUCKET: !Ref RiskScoresBucket
+          RISK_PROFILES_TABLE: !Ref RiskProfilesTable
+      Tags:
+        Purpose: RiskAnalysis
+
+  ReportGeneratorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-report-generator'
+      CodeUri: ../src/lambdas/report_generator/
+      Handler: handler.lambda_handler
+      Role: !GetAtt ReportGeneratorRole.Arn
+      Environment:
+        Variables:
+          RISK_SCORES_BUCKET: !Ref RiskScoresBucket
+          REPORTS_BUCKET: !Ref ReportsBucket
+          RISK_PROFILES_TABLE: !Ref RiskProfilesTable
+      Tags:
+        Purpose: ReportGeneration
+
+  # ==================== Step Functions State Machine ====================
+  
+  CryptoDetectionStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: !Sub '${AWS::StackName}-workflow'
+      DefinitionUri: state_machine.json
+      DefinitionSubstitutions:
+        DataFetcherFunctionArn: !GetAtt DataFetcherFunction.Arn
+        FeatureExtractorFunctionArn: !GetAtt FeatureExtractorFunction.Arn
+        RiskAnalyzerFunctionArn: !GetAtt RiskAnalyzerFunction.Arn
+        ReportGeneratorFunctionArn: !GetAtt ReportGeneratorFunction.Arn
+      Role: !GetAtt StepFunctionsRole.Arn
+      Logging:
+        Level: ALL
+        IncludeExecutionData: true
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt StateMachineLogGroup.Arn
+      Tags:
+        Purpose: WorkflowOrchestration
+
+  StateMachineLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/states/${AWS::StackName}-workflow'
+      RetentionInDays: 7
+
+# ==================== Outputs ====================
+
+Outputs:
+  RawDataBucketName:
+    Description: S3 bucket for raw transaction data
+    Value: !Ref RawDataBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-RawDataBucket'
+
+  FeaturesBucketName:
+    Description: S3 bucket for extracted features
+    Value: !Ref FeaturesBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-FeaturesBucket'
+
+  RiskScoresBucketName:
+    Description: S3 bucket for risk scores
+    Value: !Ref RiskScoresBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-RiskScoresBucket'
+
+  ReportsBucketName:
+    Description: S3 bucket for reports and charts
+    Value: !Ref ReportsBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-ReportsBucket'
+
+  RiskProfilesTableName:
+    Description: DynamoDB table for account risk profiles
+    Value: !Ref RiskProfilesTable
+    Export:
+      Name: !Sub '${AWS::StackName}-RiskProfilesTable'
+
+  BitoproSecretArn:
+    Description: ARN of BitoPro API secret
+    Value: !Ref BitoproApiSecret
+    Export:
+      Name: !Sub '${AWS::StackName}-BitoproSecret'
+
+  DataFetcherFunctionArn:
+    Description: ARN of Data Fetcher Lambda function
+    Value: !GetAtt DataFetcherFunction.Arn
+
+  FeatureExtractorFunctionArn:
+    Description: ARN of Feature Extractor Lambda function
+    Value: !GetAtt FeatureExtractorFunction.Arn
+
+  RiskAnalyzerFunctionArn:
+    Description: ARN of Risk Analyzer Lambda function
+    Value: !GetAtt RiskAnalyzerFunction.Arn
+
+  ReportGeneratorFunctionArn:
+    Description: ARN of Report Generator Lambda function
+    Value: !GetAtt ReportGeneratorFunction.Arn
+
+  StepFunctionsRoleArn:
+    Description: ARN of Step Functions execution role
+    Value: !GetAtt StepFunctionsRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-StepFunctionsRole'
+
+  StateMachineArn:
+    Description: ARN of the Step Functions state machine
+    Value: !Ref CryptoDetectionStateMachine
+    Export:
+      Name: !Sub '${AWS::StackName}-StateMachine'
+
+  StateMachineName:
+    Description: Name of the Step Functions state machine
+    Value: !GetAtt CryptoDetectionStateMachine.Name

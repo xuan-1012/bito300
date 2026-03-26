@@ -1,2 +1,7 @@
+<<<<<<< HEAD
 pytest==7.4.3
 hypothesis==6.92.1
+=======
+pytest==7.4.3
+hypothesis==6.92.1
+>>>>>>> 3ed03a3 (Initial commit)

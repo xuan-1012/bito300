@@ -1,0 +1,127 @@
+{
+  "Comment": "Crypto Suspicious Account Detection Workflow - Orchestrates data fetching, feature extraction, risk analysis, and report generation",
+  "StartAt": "DataFetcher",
+  "States": {
+    "DataFetcher": {
+      "Type": "Task",
+      "Resource": "${DataFetcherFunctionArn}",
+      "Comment": "Fetch transaction data from BitoPro API and store to S3",
+      "TimeoutSeconds": 300,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed",
+            "States.Timeout",
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "FailState"
+        }
+      ],
+      "ResultPath": "$.dataFetcherResult",
+      "Next": "FeatureExtractor"
+    },
+    "FeatureExtractor": {
+      "Type": "Task",
+      "Resource": "${FeatureExtractorFunctionArn}",
+      "Comment": "Extract risk features from raw transaction data",
+      "TimeoutSeconds": 300,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed",
+            "States.Timeout",
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "FailState"
+        }
+      ],
+      "ResultPath": "$.featureExtractorResult",
+      "Next": "RiskAnalyzer"
+    },
+    "RiskAnalyzer": {
+      "Type": "Task",
+      "Resource": "${RiskAnalyzerFunctionArn}",
+      "Comment": "Analyze risk using Amazon Bedrock with rate limiting",
+      "TimeoutSeconds": 3600,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed",
+            "States.Timeout",
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "FailState"
+        }
+      ],
+      "ResultPath": "$.riskAnalyzerResult",
+      "Next": "ReportGenerator"
+    },
+    "ReportGenerator": {
+      "Type": "Task",
+      "Resource": "${ReportGeneratorFunctionArn}",
+      "Comment": "Generate visualizations, reports, and presentation materials",
+      "TimeoutSeconds": 300,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed",
+            "States.Timeout",
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "FailState"
+        }
+      ],
+      "ResultPath": "$.reportGeneratorResult",
+      "Next": "SuccessState"
+    },
+    "SuccessState": {
+      "Type": "Succeed",
+      "Comment": "Workflow completed successfully"
+    },
+    "FailState": {
+      "Type": "Fail",
+      "Error": "WorkflowFailed",
+      "Cause": "One or more steps in the crypto suspicious account detection workflow failed after exhausting all retries"
+    }
+  }
+}

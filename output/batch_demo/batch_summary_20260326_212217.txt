@@ -1,0 +1,10 @@
+Batch Generation Summary
+Output Directory: output/batch_demo
+Timestamp: 20260326_212217
+
+Generated Charts (5):
+  - confusion_matrix: output/batch_demo\confusion_matrix_20260326_212217.png
+  - roc_curve: output/batch_demo\roc_curve_20260326_212217.png
+  - precision_recall_curve: output/batch_demo\precision_recall_curve_20260326_212217.png
+  - threshold_analysis: output/batch_demo\threshold_analysis_20260326_212217.png
+  - lift_curve: output/batch_demo\lift_curve_20260326_212217.png
